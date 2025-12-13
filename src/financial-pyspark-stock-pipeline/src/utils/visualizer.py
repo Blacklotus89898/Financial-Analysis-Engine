@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-import pandas as pd
+# import pandas as pd
 
 class TechnicalVisualizer:
     def __init__(self, data):

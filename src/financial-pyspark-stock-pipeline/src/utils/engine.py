@@ -52,17 +52,29 @@ class TradingEngine:
     def backtest(self):
         if self.data is None: return None
         
+        # Calculate Returns
         self.data['Strategy_Returns'] = self.data['Returns'] * self.data['Position']
         self.data['Cumulative_Market_Returns'] = (1 + self.data['Returns']).cumprod() * self.initial_capital
         self.data['Cumulative_Strategy_Returns'] = (1 + self.data['Strategy_Returns']).cumprod() * self.initial_capital
         
+        # Performance Metrics
         final_equity = self.data['Cumulative_Strategy_Returns'].iloc[-1]
         total_return = (final_equity / self.initial_capital) - 1
+        
+        # Sharpe Ratio Calculation (Annualized)
+        # Assuming Risk Free Rate = 0 for simplicity
+        daily_std = self.data['Strategy_Returns'].std()
+        daily_mean = self.data['Strategy_Returns'].mean()
+        
+        sharpe_ratio = 0.0
+        if daily_std > 0:
+            sharpe_ratio = (daily_mean / daily_std) * np.sqrt(252)
         
         return {
             "name": self.active_strategy_name,
             "equity_curve": self.data['Cumulative_Strategy_Returns'],
             "market_curve": self.data['Cumulative_Market_Returns'],
             "final_equity": final_equity,
-            "total_return": total_return
+            "total_return": total_return,
+            "sharpe_ratio": sharpe_ratio
         }
