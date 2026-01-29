@@ -1,0 +1,151 @@
+# -------------------
+# 1. POSTGRES DATABASE
+# -------------------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          env:
+            - name: POSTGRES_DB
+              value: test_erqueue_database
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: postgres
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: postgres-storage
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-service  # <--- Backend will look for this name
+spec:
+  selector:
+    app: postgres
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+
+# -------------------
+# 2. BACKEND API
+# -------------------
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      # --- ADD THIS BLOCK ---
+      initContainers:
+        - name: wait-for-db
+          image: busybox
+          command: ['sh', '-c', "until nc -z db-service 5432; do echo waiting for db; sleep 2; done"]
+      # ----------------------
+      containers:
+        - name: backend
+          image: my-backend:latest
+          # IMPORTANT: "Never" tells K8s to use the local image we loaded
+          # instead of trying to download it from the internet.
+          imagePullPolicy: Never 
+          ports:
+            - containerPort: 8080
+          env:
+            # We use the Service Name 'db-service' as the hostname
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://db-service:5432/test_erqueue_database
+            - name: SPRING_DATASOURCE_USERNAME
+              value: postgres
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+spec:
+  selector:
+    app: backend
+  type: NodePort # Expose internal port 8080 to outside
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+
+# -------------------
+# 3. FRONTEND UI
+# -------------------
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: my-frontend:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+spec:
+  selector:
+    app: frontend
+  type: NodePort # This opens a port on the Minikube IP
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+      nodePort: 30000 # Forces port 30000 (Easier to find)
